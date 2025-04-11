@@ -125,7 +125,7 @@ fi
 log_message "INFO" "Installing Chromium via snap..."
 # Optional: Use log_command_output for detailed snap logs
 # log_command_output snap install chromium
-snap install chromium
+sudo snap install chromium
 log_message "INFO" "Chromium installation completed."
 
 # Pin Chromium to dock
