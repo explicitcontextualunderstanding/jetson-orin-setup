@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# setup_jetson.sh: Automate post-flashing setup for NVIDIA Jetson Orin Nano
+# setup_jetson.sh: Automate post-flashing setup for NVIDIA Jetson Orin
 
 set -e
 
