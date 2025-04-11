@@ -43,7 +43,7 @@ fi
 
 if [ -n "$TERMINAL_FONT_SCRIPT" ]; then
   echo "Setting Terminal font size to 16..."
-  sudo bash "$TERMINAL_FONT_SCRIPT" || echo "Warning: Failed to set Terminal font size."
+  bash "$TERMINAL_FONT_SCRIPT" || echo "Warning: Failed to set Terminal font size."
 fi
 
 
