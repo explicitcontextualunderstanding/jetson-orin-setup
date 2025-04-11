@@ -17,7 +17,7 @@ A script to automate post-flashing setup for NVIDIA Jetson Orin Nano on JetPack 
 ## Usage
 ```bash
 git clone https://github.com/jetsonhacks/jetson-orin-setup.git
-cd jetson-orin-nano-setup
+cd jetson-orin-setup
 chmod +x setup_jetson.sh
 ./setup_jetson.sh
 ```
