@@ -1,12 +1,9 @@
-# jetson-orin-setup
-After flashing, installs the minimum development environment
+# Jetson Orin Setup
 
-# Jetson Orin Nano Setup
-
-A script to automate post-flashing setup for NVIDIA Jetson Orin Nano on JetPack 5.x or later. I use these scripts frequently for setting up a minimal development environment
+A script to automate post-flashing setup for NVIDIA Jetson Orin Nano on JetPack 5.x or later. I use these scripts frequently for setting up a minimal development environment.
 
 ## Features
-- Verifies JetPack version (> 4) (Latest version of VSCode requirement)
+- Verifies JetPack version (> 4) (Current Visual Studio Code requirement)
 - Updates system packages
 - Installs Chromium (via snap), python3-pip, jetson-stats, and Visual Studio Code
 - Checks for reboot requirements
@@ -23,6 +20,7 @@ git clone https://github.com/jetsonhacks/jetson-orin-setup.git
 cd jetson-orin-nano-setup
 chmod +x setup_jetson.sh
 ./setup_jetson.sh
+```
 
 # Release Notes
 
