@@ -6,6 +6,7 @@ set -e
 
 # Path to scripts
 PIN_SCRIPT="./scripts/pin_to_dock.sh"
+TERMINAL_FONT_SCRIPT="./scripts/set_terminal_font.sh"
 
 # Check if the pin script exists
 if [ ! -f "$PIN_SCRIPT" ]; then
@@ -19,6 +20,18 @@ else
   fi
 fi
 
+# Check if the terminal font script exists
+if [ ! -f "$TERMINAL_FONT_SCRIPT" ]; then
+  echo "Warning: $TERMINAL_FONT_SCRIPT not found. Skipping terminal font customization."
+  TERMINAL_FONT_SCRIPT=""
+else
+  # Check if the terminal font script is executable
+  if [ ! -x "$TERMINAL_FONT_SCRIPT" ]; then
+    echo "Making $TERMINAL_FONT_SCRIPT executable..."
+    chmod +x "$TERMINAL_FONT_SCRIPT"
+  fi
+fi
+
 # Update and upgrade system
 sudo apt update && sudo apt upgrade -y
 
@@ -27,6 +40,12 @@ if [ -n "$PIN_SCRIPT" ]; then
   echo "Pinning Terminal to the dock..."
   sudo bash "$PIN_SCRIPT" org.gnome.Terminal.desktop || echo "Warning: Failed to pin Terminal to dock."
 fi
+
+if [ -n "$TERMINAL_FONT_SCRIPT" ]; then
+  echo "Setting Terminal font size to 16..."
+  sudo bash "$TERMINAL_FONT_SCRIPT" || echo "Warning: Failed to set Terminal font size."
+fi
+
 
 # Install Chromium via snap
 snap install chromium
