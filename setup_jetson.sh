@@ -108,7 +108,7 @@ log_message "INFO" "System update and upgrade completed."
 # Pin Terminal to dock
 if [ -n "$PIN_SCRIPT" ]; then
   log_message "INFO" "Pinning Terminal to the dock..."
-  sudo bash "$PIN_SCRIPT" org.gnome.Terminal.desktop || log_message "WARN" "Failed to pin Terminal to dock. Script: $PIN_SCRIPT"
+  bash "$PIN_SCRIPT" org.gnome.Terminal.desktop || log_message "WARN" "Failed to pin Terminal to dock. Script: $PIN_SCRIPT"
 else
   log_message "INFO" "Skipping Terminal pinning (script not found)."
 fi
@@ -131,7 +131,7 @@ log_message "INFO" "Chromium installation completed."
 # Pin Chromium to dock
 if [ -n "$PIN_SCRIPT" ]; then
   log_message "INFO" "Pinning Chromium to the dock..."
-  sudo bash "$PIN_SCRIPT" chromium_chromium.desktop || log_message "WARN" "Failed to pin Chromium to dock. Script: $PIN_SCRIPT"
+  bash "$PIN_SCRIPT" chromium_chromium.desktop || log_message "WARN" "Failed to pin Chromium to dock. Script: $PIN_SCRIPT"
 else
   log_message "INFO" "Skipping Chromium pinning (script not found)."
 fi
@@ -152,7 +152,6 @@ log_message "INFO" "jetson-stats installation/update completed."
 
 # --- VS Code Installation ---
 log_message "INFO" "Running Visual Studio Code installation script: $VSCODE_SCRIPT..."
-# Execute the VS Code installation script with sudo
 # Optional: Use log_command_output if you want detailed VSCode script logs
 # log_command_output sudo bash "$VSCODE_SCRIPT"
 sudo bash "$VSCODE_SCRIPT"
@@ -162,7 +161,7 @@ if [ $? -eq 0 ]; then
   # Pin VS Code to dock
   if [ -n "$PIN_SCRIPT" ]; then
     log_message "INFO" "Pinning Visual Studio Code to the dock..."
-    sudo bash "$PIN_SCRIPT" code.desktop || log_message "WARN" "Failed to pin VS Code to dock. Script: $PIN_SCRIPT"
+    bash "$PIN_SCRIPT" code.desktop || log_message "WARN" "Failed to pin VS Code to dock. Script: $PIN_SCRIPT"
   else
     log_message "INFO" "Skipping VS Code pinning (script not found)."
   fi
