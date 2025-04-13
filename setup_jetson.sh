@@ -125,7 +125,10 @@ fi
 log_message "INFO" "Installing Chromium via snap..."
 # Optional: Use log_command_output for detailed snap logs
 # log_command_output snap install chromium
-sudo snap install chromium
+# Note: I've had issues with installation using
+# sudo snap install chromium
+# apt install still uses the snap installer, but seems to have less issues
+sudo apt install chromium-browser
 log_message "INFO" "Chromium installation completed."
 
 # Pin Chromium to dock
