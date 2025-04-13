@@ -96,14 +96,6 @@ else
   fi
 fi
 
-# --- System Update ---
-log_message "INFO" "Starting system update and upgrade..."
-# Optional: Use log_command_output if you want detailed apt logs in the file
-# log_command_output sudo apt update
-# log_command_output sudo apt upgrade -y
-sudo apt update && sudo apt upgrade -y
-log_message "INFO" "System update and upgrade completed."
-
 # --- GNOME Terminal Setup ---
 # Pin Terminal to dock
 if [ -n "$PIN_SCRIPT" ]; then
@@ -120,6 +112,13 @@ if [ -n "$TERMINAL_FONT_SCRIPT" ]; then
 else
   log_message "INFO" "Skipping Terminal font setting (script not found)."
 fi
+
+# --- System Update ---
+log_message "INFO" "Starting system update..."
+# Optional: Use log_command_output if you want detailed apt logs in the file
+# log_command_output sudo apt update
+sudo apt update 
+log_message "INFO" "System update completed."
 
 # --- Chromium Installation ---
 log_message "INFO" "Installing Chromium via snap..."
@@ -152,6 +151,14 @@ log_message "INFO" "Installing/Updating jetson-stats..."
 # log_command_output sudo pip3 install -U jetson-stats
 sudo pip3 install -U jetson-stats
 log_message "INFO" "jetson-stats installation/update completed."
+
+# --- System Update ---
+log_message "INFO" "Starting system update and upgrade..."
+# Optional: Use log_command_output if you want detailed apt logs in the file
+# log_command_output sudo apt upgrade -y
+sudo apt upgrade -y
+log_message "INFO" "System upgrade completed."
+
 
 # --- VS Code Installation ---
 log_message "INFO" "Running Visual Studio Code installation script: $VSCODE_SCRIPT..."
