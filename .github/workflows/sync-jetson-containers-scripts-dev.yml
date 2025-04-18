@@ -1,4 +1,4 @@
-# .github/workflows/sync-jetson-scripts-dev-test.yml
+# .github/workflows/sync-jetson-containers-scripts-dev.yml
 # IMPORTANT: Keep this file ONLY on the 'dev' branch during testing.
 #            Do NOT merge this version to 'main'.
 
@@ -18,7 +18,7 @@ env:
   SOURCE_REPO_URL: 'https://github.com/dusty-nv/jetson-containers.git' # Your Source Repo
   SOURCE_BRANCH: 'master'                                            # Default branch of source repo
   SOURCE_DIR_PATH: 'scripts'                                         # Source directory name
-  DEST_DIR_PATH: 'scripts'                                           # Destination directory name in your repo
+  DEST_DIR_PATH: 'scripts/jetson-containers-scripts'                 # Destination directory name in your repo
   GIT_USER_NAME: 'github-actions[bot]'
   GIT_USER_EMAIL: 'github-actions[bot]@users.noreply.github.com'
 
