@@ -1,0 +1,100 @@
+# .github/workflows/sync-jetson-containers-scripts.yml
+# Production workflow to sync scripts from dusty-nv/jetson-containers
+
+name: Sync jetson-containers scripts 
+
+on:
+  schedule:
+    # Runs daily at 4:05 AM UTC (adjust cron schedule as needed)
+    # See: https://pubs.opengroup.org/onlinepubs/9699919799/utilities/crontab.html#tag_20_25_07
+    # Current UTC time is roughly 4:43 AM on April 18, 2025. Next run would be April 19 at 4:05 AM UTC.
+    - cron: '5 4 * * *'
+
+  # Allow manual triggering on the master branch
+  workflow_dispatch:
+
+# Explicitly set permissions required by the workflow
+permissions:
+  contents: write # Needed for actions/checkout and git push
+
+# Environment variables remain the same
+env:
+  SOURCE_REPO_URL: 'https://github.com/dusty-nv/jetson-containers.git'
+  SOURCE_BRANCH: 'master'
+  SOURCE_DIR_PATH: 'scripts'
+  DEST_DIR_PATH: 'scripts/jetson-containers-scripts' # Make sure this path is correct for master
+  GIT_USER_NAME: 'github-actions[bot]'
+  GIT_USER_EMAIL: 'github-actions[bot]@users.noreply.github.com'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      # 1. Checkout your repository (the destination - checks out master branch by default on schedule/dispatch)
+      - name: Checkout Destination Repo
+        uses: actions/checkout@v4
+
+      # 2. Set up a temporary directory for the source repo clone
+      - name: Set up temporary directory
+        run: mkdir ../source_repo_temp
+
+      # 3. Clone the source repository using sparse checkout
+      - name: Clone Source Repo (Sparse Checkout)
+        env: # Pass env vars needed by the script
+          ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }} # Still here, but harmless as repo is public
+          SOURCE_REPO_URL: ${{ env.SOURCE_REPO_URL }}
+          SOURCE_BRANCH: ${{ env.SOURCE_BRANCH }}
+        run: |
+          SOURCE_URL=$SOURCE_REPO_URL
+          # ACCESS_TOKEN handling remains, just in case source changes or for template reuse
+          if [[ -n "$ACCESS_TOKEN" && "$SOURCE_URL" == https://* ]]; then
+            SOURCE_URL="https://${ACCESS_TOKEN}@${SOURCE_URL#https://}"
+          fi
+
+          echo "Cloning from target repository..." # Avoid echoing full URL
+          git clone --no-checkout --depth 1 --filter=blob:none "$SOURCE_URL" ../source_repo_temp
+          cd ../source_repo_temp
+          git sparse-checkout init --cone
+          CLEANED_SOURCE_PATH=$(echo "${{ env.SOURCE_DIR_PATH }}" | sed 's:^/*::;s:/*$::')
+          git sparse-checkout set "$CLEANED_SOURCE_PATH"
+          echo "Checking out source branch: $SOURCE_BRANCH"
+          git checkout $SOURCE_BRANCH
+
+      # 4. Remove the old destination directory and copy the new one
+      - name: Update directory in destination repo
+        run: |
+          echo "Removing old content at ${{ env.DEST_DIR_PATH }}"
+          rm -rf "${{ env.DEST_DIR_PATH }}"
+          echo "Copying new content from ../source_repo_temp/${{ env.SOURCE_DIR_PATH }} to ${{ env.DEST_DIR_PATH }}"
+          mkdir -p "$(dirname "${{ env.DEST_DIR_PATH }}")"
+          cp -r ../source_repo_temp/"${{ env.SOURCE_DIR_PATH }}" "${{ env.DEST_DIR_PATH }}"
+          echo "Cleaning up temporary clone"
+          rm -rf ../source_repo_temp
+
+      # 5. Check if there are changes
+      - name: Check for changes
+        id: check_changes
+        run: |
+          # Use git status --porcelain to check for any changes (tracked or untracked)
+          if [ -n "$(git status --porcelain -- "${{ env.DEST_DIR_PATH }}")" ]; then
+             echo "Changes detected in ${{ env.DEST_DIR_PATH }}."
+             echo "changed=true" >> $GITHUB_OUTPUT
+          else
+             echo "No changes detected in ${{ env.DEST_DIR_PATH }}."
+             echo "changed=false" >> $GITHUB_OUTPUT
+          fi
+
+      # 6. Commit and push changes if any were detected (will push to master branch)
+      - name: Commit and Push changes
+        if: steps.check_changes.outputs.changed == 'true'
+        run: |
+          git config --global user.name "${{ env.GIT_USER_NAME }}"
+          git config --global user.email "${{ env.GIT_USER_EMAIL }}"
+          git add "${{ env.DEST_DIR_PATH }}"
+          COMMIT_MSG="Sync ${{ env.DEST_DIR_PATH }}/ from dusty-nv/jetson-containers" # Updated commit message
+          git commit -m "$COMMIT_MSG"
+          # This push will go to the 'master' branch when run on master
+          git push
+        env:
+          # Use the GITHUB_TOKEN provided automatically by Actions, respecting the permissions block
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
