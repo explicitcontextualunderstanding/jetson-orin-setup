@@ -190,8 +190,3 @@ pip install --force-reinstall "$WHEEL_DIR"/pyqt5-${PYQT_VERSION}-*.whl
 # === Validation ===
 echo "[INFO] Verifying PyQt5 installation..."
 python3 -c "from PyQt5.QtCore import QCoreApplication; print('✅ PyQt5 installed and working.')"
-nd PyQt5 in common paths. Listing site-packages:"
-  find /usr -type d -name "PyQt5" 2>/dev/null || true
-  echo "[ERROR] PyQt5 install not found in expected locations."
-  exit 1
-fi
