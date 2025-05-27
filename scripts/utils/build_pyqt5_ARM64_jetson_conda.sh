@@ -3,9 +3,12 @@
 # ============================================================================
 # build_pyqt5_arm64.sh
 #
-# Cross-compile PyQt5 5.10.1 for ARM64 and generate a binary wheel.
-# This script is based on a working x86_64 host build with modifications for
-# native Jetson Orin / ARM64 targets.
+# Build PyQt5 5.10.1 from source on Jetson AGX Orin using system Qt 5.15.3 and SIP 4.19.8
+# - Conda env: dfl-py310
+# - Qt must be pre-installed (system-wide)
+# - SIP tarball is in the "tarball/" subdirectory of the PyQt5 GitHub repo
+# - All output is stored in predefined user directories
+# - Supports --clean and --verbose flags
 #
 # Expected layout:
 # - Sources:  $HOME/workspace/sources/pyqt5/PyQt5/tarball/{PyQt5_gpl-5.10.1.tar.gz, sip-4.19.8.tar.gz}
@@ -17,195 +20,213 @@
 # --verbose : enable command tracing
 #
 # ============================================================================
+set -e
 
-# --- System preparation (on Jetson/ARM64) ---
-# sudo apt update
-# sudo apt install -y build-essential qtbase5-dev qtchooser libgl1-mesa-dev python3-dev python3-pip
-
-# (Additional dependencies may be required for packaging and SIP)
-
-# === Preload sudo password once ===
+# === Preload sudo ===
+echo "[INFO] Preloading sudo credentials..."
 sudo -v
 
-# === Cleanup and environment reset if --clean ===
-
-# Setup vars for cleanup context even before definition
-export PYQT_VERSION="5.10.1"
-export SIP_VERSION="4.19.8"
+# === Directories & Versions ===
 export SRC_DIR="$HOME/workspace/sources/pyqt5"
 export BUILD_DIR="$HOME/workspace/builds/pyqt5_arm64_build"
 export WHEEL_DIR="$HOME/wheels"
-export STAGING_DIR="$BUILD_DIR/wheel_staging"
+export SIP_TARBALL_PATH="tarball/sip-4.19.8.tar.gz"
+export CONDA_ENV_NAME="dfl-py310"
+export PYTHON_VERSION="3.10"
 
-if [[ "$*" == *--clean* ]]; then
-  echo "[INFO] Performing full cleanup..."
+export CLEAN=0
+export VERBOSE=0
 
-  # Deactivate conda
-  if [[ ! -z "$CONDA_DEFAULT_ENV" ]]; then
-    echo "[INFO] Deactivating conda env: $CONDA_DEFAULT_ENV"
-    conda deactivate || true
-  fi
+# === CLI Options ===
+for arg in "$@"; do
+    case $arg in
+        --clean)
+            export CLEAN=1
+            ;;
+        --verbose)
+            export VERBOSE=1
+            set -x
+            ;;
+        *)
+            echo "[ERROR] Unknown argument: $arg" >&2
+            exit 1
+            ;;
+    esac
+ done
 
-  # Remove env if it exists
-  if conda info --envs | grep -q "dfl-py310"; then
-    echo "[INFO] Removing conda env dfl-py310"
-    conda env remove -n dfl-py310 -y || true
-  fi
-
-  # Uninstall any previous system-level PyQt5 install
-  pip uninstall -y pyqt5 || true
-
-  # Clean folders
-  rm -rf "$BUILD_DIR" "$WHEEL_DIR/pyqt5-5.10.1-*.whl" "$SRC_DIR/pyqt5"
-  rm -rf "$CONDA_PREFIX/lib/python3.10/site-packages/PyQt5" || true
-  mkdir -p "$BUILD_DIR" "$WHEEL_DIR"
+# === Clean mode ===
+if [[ $CLEAN -eq 1 ]]; then
+    echo "[INFO] Performing full cleanup..."
+    conda env remove -n "$CONDA_ENV_NAME" -y || true
+    rm -rf "$BUILD_DIR" "$SRC_DIR"
+    echo "[INFO] Running 'make clean' in source directory..."
+    if [[ -d "$SRC_DIR" ]]; then
+        make -C "$SRC_DIR" clean || true
+    fi
+    echo "[INFO] 'make clean' completed. Cleanup done."
+    # script continues after cleanup
 fi
 
-# === Activate conda environment and dependencies ===
+# Ensure working directory exists
+cd "$HOME"
 
-# Load conda environment manually if needed
-if ! command -v conda &> /dev/null; then
-  echo "[ERROR] Conda is not available. Please install Miniforge or Miniconda."
-  exit 1
+# === Qt 5.15.3 Clean-up ===
+echo "[INFO] Checking for conflicting Qt 5.15 installations..."
+sudo apt-get remove -y --purge qt5-default qtbase5-dev qtchooser libqt5* || true
+rm -rf "$HOME/Qt/5.15."* /usr/local/Qt-5.15* 2>/dev/null || true
+unset QTDIR QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH
+
+# === Auto-install minimal Qt dev environment ===
+echo "[INFO] Ensuring minimal Qt5 dev environment is available..."
+sudo apt-get install -y qtbase5-dev qtchooser libqt5core5a libqt5gui5 libqt5widgets5 build-essential libgl1-mesa-dev
+
+# === Prepare directories ===
+echo "[INFO] Creating directories..."
+mkdir -p "$BUILD_DIR" "$WHEEL_DIR"
+
+# === Clone PyQt5 sources ===
+if [[ ! -d "$SRC_DIR/.git" ]]; then
+    echo "[INFO] Cloning PyQt5 v5.10.1 into $SRC_DIR"
+    rm -rf "$SRC_DIR"
+    mkdir -p "$(dirname "$SRC_DIR")"
+    git clone --branch 5.10.1 --depth 1 https://github.com/baoboa/pyqt5.git "$SRC_DIR"
+else
+    echo "[INFO] PyQt5 already cloned; fetching updates"
+    cd "$SRC_DIR"
+    git fetch --tags
+    git checkout 5.10.1
 fi
 
-# Ensure proper conda env is active
-if [[ -z "$CONDA_DEFAULT_ENV" || "$CONDA_DEFAULT_ENV" != "dfl-py310" ]]; then
-  echo "[INFO] Activating conda environment dfl-py310..."
-  eval "$(conda shell.bash hook)" && conda activate dfl-py310 || { echo "[ERROR] Failed to activate dfl-py310."; exit 1; }
-fi
+# === Create and activate conda environment ===
+echo "[INFO] Creating/activating conda environment: $CONDA_ENV_NAME"
+conda create -y -n "$CONDA_ENV_NAME" python=$PYTHON_VERSION
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate "$CONDA_ENV_NAME"
 
-# === Define directory layout and version variables ===
-export PYQT_VERSION="5.10.1"
-export SIP_VERSION="4.19.8"
-export TARBALL_DIR="$HOME/workspace/sources/pyqt5/tarball"
-export SRC_DIR="$HOME/workspace/sources/pyqt5"
-export BUILD_DIR="$HOME/workspace/builds/pyqt5_arm64_build"
-export WHEEL_DIR="$HOME/wheels"
-export STAGING_DIR="$BUILD_DIR/wheel_staging"
+# === Install basic build tools ===
+echo "[INFO] Installing build dependencies"
+pip install --upgrade pip wheel setuptools
 
-mkdir -p "$BUILD_DIR" "$WHEEL_DIR" "$STAGING_DIR"
-cd "$BUILD_DIR"
+# === Extract and build SIP ===
+echo "[INFO] Extracting SIP from $SRC_DIR/$SIP_TARBALL_PATH"
+cd "$SRC_DIR/tarball"
+tar -xzf "sip-4.19.8.tar.gz"
+cd sip-4.19.8
 
-# === Clone PyQt5 repo and extract SIP ===
+echo "[INFO] Configuring SIP"
+python configure.py --sip-module PyQt5.sip
+
+echo "[INFO] Building SIP"
+make -j$(nproc)
+
+echo "[INFO] Installing SIP into conda environment"
+make install
+
+# === Configure and build PyQt5 ===
+# Patch deprecated macros in qpycore_qstringlist.cpp for Python C-API compatibility
+echo "[INFO] Patching qpycore_qstringlist.cpp macros"
+sed -i -e 's/PyList_SET_ITEM/PyList_SetItem/g' \
+       -e 's/PySequence_ITEM/PySequence_GetItem/g' \
+    "$SRC_DIR/qpy/QtCore/qpycore_qstringlist.cpp"
+
+# Workaround for deprecated macros in qpycore_qstringlist.cpp
+export CXXFLAGS="$CXXFLAGS -DPyList_SET_ITEM=PyList_SetItem -DPySequence_ITEM=PySequence_GetItem"
+
+echo "[INFO] Configuring PyQt5 build"
 cd "$SRC_DIR"
-if [ ! -d "$SRC_DIR/pyqt5" ]; then
-  echo "[INFO] Cloning baoboa/pyqt5 GitHub repository (tag 5.10.1)..."
-  git clone --branch 5.10.1 https://github.com/baoboa/pyqt5.git
-fi
+python configure.py \
+    --confirm-license \
+    --sip "$(which sip)" \
+    --qmake "$(which qmake)" \
+    --disable QAxContainer \
+    --disable Enginio \
+    --disable QtBluetooth \
+    --disable QtDesigner \
+    --disable QtHelp \
+    --disable QtLocation \
+    --disable QtMacExtras \
+    --disable QtMultimedia \
+    --disable QtMultimediaWidgets \
+    --disable QtNfc \
+    --disable QtPositioning \
+    --disable QtQml \
+    --disable QtQuick \
+    --disable QtQuickWidgets \
+    --disable QtSensors \
+    --disable QtSerialPort \
+    --disable QtSvg \
+    --disable QtTest \
+    --disable QtWebChannel \
+    --disable QtWebEngine \
+    --disable QtWebEngineCore \
+    --disable QtWebEngineWidgets \
+    --disable QtWebKit \
+    --disable QtWebKitWidgets \
+    --disable QtWebSockets \
+    --disable QtWinExtras \
+    --disable QtX11Extras \
+    --disable QtXmlPatterns \
+    --disable QtNetworkAuth \
+    --disable QtOpenGL \
+    --bindir "$BUILD_DIR/bin" \
+    --destdir "$BUILD_DIR/lib/python$PYTHON_VERSION/site-packages" \
+    --sipdir "$BUILD_DIR/share/sip" \
+    ${VERBOSE:+--verbose}
 
-# Use SIP tarball from the GitHub-cloned repo's tarball folder
-if [ ! -d "$BUILD_DIR/sip-${SIP_VERSION}" ]; then
-  echo "[INFO] Extracting SIP from cloned GitHub repo tarball folder..."
-  tar -xf "$SRC_DIR/pyqt5/tarball/sip-${SIP_VERSION}.tar.gz" -C "$BUILD_DIR"
-fi
+# === Patch duplicate QtGui OpenGL constants entries ===
+echo "[INFO] Patching QtGui Makefile for duplicate qpyopengl_add_constants.o"
+# Remove the second occurrence of qpyopengl_add_constants.o in the OBJECTS list
+sed -i '0,/qpyopengl_add_constants\.o \\/{//d;}' "$SRC_DIR/QtGui/Makefile"
 
-cd "$BUILD_DIR/sip-${SIP_VERSION}"
-echo "[INFO] Configuring and building SIP..."
-python3 configure.py
-make -j$(nproc)
-sudo make install
-cd "$BUILD_DIR"
-
-# === PyQt5 Configuration and Compilation ===
-
-# === Prepare PyQt5 source ===
-if [ ! -d "$BUILD_DIR/PyQt5_gpl-${PYQT_VERSION}" ]; then
-  echo "[INFO] Copying PyQt5 sources from GitHub repo..."
-  cp -r "$SRC_DIR/pyqt5" "$BUILD_DIR/PyQt5_gpl-${PYQT_VERSION}"
-fi
-echo "[INFO] Entering PyQt5 source directory..."
-cd "$BUILD_DIR/PyQt5_gpl-${PYQT_VERSION}"
-# Enter extracted PyQt5 sources
-
-# Configure for ARM64 with only available modules
-echo "[INFO] Configuring PyQt5 for ARM64..."
-python3 configure.py \
-  --confirm-license \
-  --sip "$(which sip)" \
-  --qmake "$(which qmake)" \
-  --disable QAxContainer \
-  --disable Enginio \
-  --disable QtBluetooth \
-  --disable QtDesigner \
-  --disable QtHelp \
-  --disable QtLocation \
-  --disable QtMacExtras \
-  --disable QtMultimedia \
-  --disable QtMultimediaWidgets \
-  --disable QtNfc \
-  --disable QtPositioning \
-  --disable QtQml \
-  --disable QtQuick \
-  --disable QtQuickWidgets \
-  --disable QtSensors \
-  --disable QtSerialPort \
-  --disable QtSvg \
-  --disable QtTest \
-  --disable QtWebChannel \
-  --disable QtWebEngine \
-  --disable QtWebEngineCore \
-  --disable QtWebEngineWidgets \
-  --disable QtWebKit \
-  --disable QtWebKitWidgets \
-  --disable QtWebSockets \
-  --disable QtWinExtras \
-  --disable QtX11Extras \
-  --disable QtXmlPatterns \
-  --disable QtNetworkAuth \
-  --verbose
-
-# Compile
+echo "[INFO] Building PyQt5"
 make -j$(nproc)
 
-# Install into current conda environment
-sudo make install
-# === Package ARM64 Wheel ===
+echo "[INFO] Installing PyQt5 into staging directory"
+make install
 
-STAGING_DIR="$BUILD_DIR/wheel_staging"
-mkdir -p "$STAGING_DIR/PyQt5"
+echo "[INFO] Copying SIP into staging directory"
+# Ensure the SIP extension and stub are included in the wheel
+cp "$CONDA_PREFIX/lib/python${PYTHON_VERSION}/site-packages/PyQt5/sip.so" \
+   "$BUILD_DIR/lib/python${PYTHON_VERSION}/site-packages/PyQt5/"
+cp "$CONDA_PREFIX/lib/python${PYTHON_VERSION}/site-packages/sip.pyi" \
+   "$BUILD_DIR/lib/python${PYTHON_VERSION}/site-packages/"
 
-# Locate PyQt5 inside conda environment
-SITE_PKGS="$CONDA_PREFIX/lib/python3.10/site-packages"
 
-# Verify expected build artifacts exist
-if ! ls "$SITE_PKGS"/PyQt5/*.so &>/dev/null; then
-  echo "[ERROR] No .so files found in $SITE_PKGS/PyQt5. Make install may have failed."
-  exit 1
-fi
+# === Move into staging directory for wheel build ===
+echo "[INFO] Changing directory to staging for wheel assembly"
+cd "$BUILD_DIR/lib/python${PYTHON_VERSION}/site-packages"
 
-# Copy shared objects and stubs
-cp -v "$SITE_PKGS"/PyQt5/*.so "$STAGING_DIR/PyQt5/"
-cp -v "$SITE_PKGS"/PyQt5/*.pyi "$STAGING_DIR/PyQt5/"
-touch "$STAGING_DIR/PyQt5/__init__.py"
+# === Prepare PEP 517 build with pyproject.toml ===
+echo "[INFO] Generating pyproject.toml for wheel build"
+cat > pyproject.toml << 'EOF'
+[build-system]
+requires = ["setuptools>=40.8.0", "wheel"]
+build-backend = "setuptools.build_meta"
 
-# Create setup.py for wheel
-cd "$STAGING_DIR"
-cat <<EOF > setup.py
-from setuptools import setup
-from setuptools.dist import Distribution
+[project]
+name = "PyQt5"
+version = "5.10.1"
+description = "PyQt5 modules built natively for Jetson Orin"
+requires-python = ">=3.10,<3.11"
+# No extra metadata; modules are under PyQt5/
 
-class BinaryDistribution(Distribution):
-    def has_ext_modules(self):
-        return True
-
-setup(
-    name="pyqt5",
-    version="${PYQT_VERSION}",
-    packages=["PyQt5"],
-    package_data={"PyQt5": ["*.so", "*.pyi"]},
-    include_package_data=True,
-    distclass=BinaryDistribution,
-    zip_safe=False,
-)
+[project.urls]
+Home = "https://github.com/baoboa/pyqt5"
 EOF
 
-# Build wheel
-cd "$STAGING_DIR"
-python3 setup.py bdist_wheel --plat-name=linux_aarch64
-cp dist/pyqt5-${PYQT_VERSION}-*.whl "$WHEEL_DIR/"
+# === Build wheel via PEP517 ===
+echo "[INFO] Building wheel via pyproject.toml"
+python -m pip wheel . --no-deps -w "$WHEEL_DIR" --use-pep517
 
-# === Validate install ===
-echo "[INFO] Installing wheel to validate..."
-pip install --force-reinstall --no-cache-dir "$WHEEL_DIR"/pyqt5-${PYQT_VERSION}-*.whl
-python3 -c "from PyQt5.QtCore import QCoreApplication; print('✅ PyQt5 ARM64 wheel installed and validated.')" when ready to proceed with integrating first build blocks.
+# Clean up pyproject.toml
+rm pyproject.toml
+
+# === Install and test the locally built wheel ===
+echo "[INFO] Installing built PyQt5 wheel locally"
+pip install --no-deps --no-index --find-links "$WHEEL_DIR" PyQt5
+
+echo "[INFO] Testing PyQt5 import"
+python - <<EOF
+from PyQt5.QtCore import QCoreApplication
+print('Import succeeded.')
+EOF
