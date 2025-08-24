@@ -1,63 +1,82 @@
-# PyQt5 Optimized Build (Jetson Orin) – Progress & Technical Log
+# PyQt5 Optimized Build (Jetson Orin) – Hibernate Snapshot (Paused Work)
+
+_Last updated: 2025-08-24_
+
+This document freezes the current state of the minimal PyQt5 5.15.10 build effort so we can suspend work and later resume with full context.
+
+---
+
+## 0. Quick Resume Cheat Sheet
+
+If you only read one section when coming back, read this.
+
+1. Activate env (or recreate):
+   ```bash
+   conda activate pyqtbuild || { conda create -n pyqtbuild python=3.10 -y && conda activate pyqtbuild; }
+   python -m pip install --upgrade pip
+   python -m pip install --no-cache-dir "sip>=6.7,<6.12" "PyQt5-sip>=12.11,<13"
+   ```
+2. Ensure build script includes configure patch (Section 6.3). If not, add it.
+3. Run build:
+   ```bash
+   PYQT_VERSION=5.15.10 MAKE_JOBS=1 ENABLE_MULTIMEDIA=0 SKIP_APT=1 \
+     ./scripts/utils/build_pyqt5_jetson.sh |& tee build_pyqt5.log
+   ```
+4. If `TypeError: '<' not supported between int and NoneType` appears again inside `configure.py:check_sip()`, confirm patch inserted before `configure.py` runs.
+5. After success, run validation script (Section 11) and fill Section 21 template.
+
+---
 
 ## 1. Executive Summary
 
-Goal: Provide a minimal, reproducible PyQt5 5.15.x build on Jetson Orin that excludes heavy / unused Qt modules (notably all WebEngine components) to reduce build time, disk footprint, and runtime memory usage, while preserving core desktop GUI functionality (QtCore, QtGui, QtWidgets).
-
-Current Status: Clean environment prepared (`pyqtbuild`), modern packaging split understood (builder: `sip` / `sipbuild`, runtime: `PyQt5.sip`), namespaced runtime verified. Hardened build script patch (dependency pins, module exclusion, runtime detection) is pending application before running the PyQt5 5.15.10 build.
+Goal: Produce a minimal, reproducible PyQt5 5.15.10 build on Jetson Orin (system Qt 5.15.3) excluding heavy subsystems (especially WebEngine) while preserving `QtCore`, `QtGui`, `QtWidgets`.  
+Status: Build still blocked at `configure.py` `check_sip()` due to internal version tuple logic causing `TypeError` despite correct `sip -V` output (`6.11.1`). Pending mitigation: patch `configure.py` (or inject pre-execution monkey patch) to override broken SIP version detection via a forced environment variable.
 
 ---
 
-## 2. Scope
+## 2. Scope (Unchanged)
 
-### **In-Scope**
+In-Scope:
+- Minimal PyQt5 5.15.10 build.
+- Module exclusions & negative import validation.
+- Hardened reproducibility (pins, deterministic output).
 
-- Build PyQt5 5.15.10 against system Qt 5.15.3 (JetPack 6.2.1+b38).
-- Exclude non-essential Qt bindings (WebEngine stack, device/network extras).
-- Harden build script (version pins, verification, deterministic output).
-- Document sip vs PyQt5-sip packaging transition.
-- Post-build validation (negative import tests).
-
-### **Out of Scope (Current Phase)**
-
+Out-of-Scope (current pause):
 - Qt 6 migration.
-- Cross-compilation for non-Orin devices.
-- Wheel redistribution / packaging automation.
-- Performance benchmarking & GPU GUI profiling.
+- Distribution automation (wheel publication).
+- Performance profiling.
 
 ---
 
-## 3. Target Versions / Components
+## 3. Target Versions / Constraints
 
-| Component            | Target / Constraint                 | Notes                                              |
-|----------------------|--------------------------------------|----------------------------------------------------|
-| System Qt            | 5.15.3 (JetPack-provided)            | Avoid mixing Qt major/minor outside 5.15 series    |
-| PyQt5                | 5.15.10                              | Stable; ABI-compatible with system Qt              |
-| sip (builder)        | >=6.7,<6.12 (installed: 6.11.1)      | <6.12 avoids configure regression                  |
-| PyQt5-sip (runtime)  | >=12.11,<13 (installed: 12.17.0)     | Provides `PyQt5.sip` extension module              |
-| Python               | 3.10 (`pyqtbuild` env)               | Clean environment after prior corruption           |
-
----
-
-## 4. Optimization Goals
-
-1. Exclude large, unused Qt subsystems (especially WebEngine/Chromium stack).
-2. Lower peak RAM usage (MAKE_JOBS=1 + enlarged swap).
-3. Eliminate nondeterminism (explicit pins + sanitized indexes).
-4. Provide clear failure signals (strict early dependency validation).
-5. Make rebuilds trivial & reproducible on fresh Jetson flash.
-
-### **Success Criteria**
-
-- PyQt5 5.15.10 imports cleanly.
-- Disabled modules raise `ImportError`.
-- Peak build memory stays within device RAM + configured swap margin.
-- Build script exit codes reflect failure points.
-- Repeat build produces identical module set (hashable file list optional).
+| Component            | Target / Pin                 | Notes |
+|---------------------|------------------------------|-------|
+| System Qt           | 5.15.3 (JetPack)             | ABI baseline |
+| PyQt5               | 5.15.10                      | Selected modern 5.15.x |
+| sip (builder)       | >=6.7,<6.12 (using 6.11.1)   | Avoid >=6.12 regression |
+| PyQt5-sip (runtime) | >=12.11,<13 (using 12.17.0)  | Provides `PyQt5.sip` |
+| Python              | 3.10                         | Conda env `pyqtbuild` |
 
 ---
 
-## 5. Excluded Qt Modules (Planned)
+## 4. Optimization Goals (Recap)
+
+1. Strip unused bindings (WebEngine etc.).
+2. Constrain RAM usage (serial build first).
+3. Deterministic rebuild (pins + manifest).
+4. Fail fast with clear diagnostics.
+5. Negative import validation for exclusions.
+
+Success Criteria (still pending completion for 5.15.10):
+- Core modules import.
+- Invalid (excluded) modules raise `ImportError`.
+- Manifest reproducibility (optional hash list).
+- Clean exit codes & documented metrics.
+
+---
+
+## 5. Planned Excluded Qt Modules
 
 ```text
 QtWebEngineCore
@@ -75,81 +94,150 @@ QtTest
 (Optional) QtMultimedia
 ```
 
-**Rationale:** These introduce large dependency surfaces (Chromium integration, device stacks, networking extras) irrelevant for minimal desktop/control UIs. Omit unless explicitly required.
+Rationale: Remove Chromium stack + device/IO subsystems not needed for basic desktop / control UI usage.
 
 ---
 
-## 6. Build Strategy
+## 6. Current Blocker & Planned Mitigation
 
-- Fetch source tarball for PyQt5 5.15.10.
-- Install pinned: `sip>=6.7,<6.12` and `PyQt5-sip>=12.11,<13`.
-- Use `python -m pip` always; set `PYTHONNOUSERSITE=1`.
-- Provide environment variable controls: `MAKE_JOBS`, `ENABLE_MULTIMEDIA`, `SKIP_APT`.
-- Single-thread default: `MAKE_JOBS=1` (raise only after first successful build).
-- Expand swap (script: `increase_to_60gb_swap.sh`).
-- Post-build: verify required modules, assert excluded imports fail.
+### 6.1 Symptom
+
+`configure.py` crashes with:
+```
+TypeError: '<' not supported between instances of 'int' and 'NoneType'
+```
+inside `check_sip()` comparing parsed SIP version tuples.
+
+### 6.2 Confirmed Facts
+
+- `sip -V` (wrapper) outputs: `6.11.1\n`.
+- Hexdump validates no hidden characters.
+- Environment uses separate builder/runtime distributions (`sip`, `PyQt5-sip`).
+- Failure occurs before build steps, so no compiled bindings yet.
+
+### 6.3 Mitigation Plan (Patch Injection)
+
+Insert a patch segment right after extracting PyQt5 source and before invoking `python configure.py`:
+
+Pseudo-diff to add in `build_pyqt5_jetson.sh`:
+
+```bash
+PATCH_FILE="$SRC_DIR/configure.py"
+if [[ -f "$PATCH_FILE" && -z "${PYQT_CONFIG_PATCHED:-}" ]]; then
+  echo "[INFO] Patching configure.py to force SIP version if PYQT_FORCE_SIP_VERSION is set"
+  python - <<'PY'
+import os, re, sys
+path = os.environ.get("PATCH_FILE")
+force = os.environ.get("PYQT_FORCE_SIP_VERSION")
+if not path or not os.path.exists(path) or not force:
+    sys.exit(0)
+txt = open(path,'r',encoding='utf-8').read()
+# Inject a guard near the start of check_sip definition.
+pat = r"def check_sip\\(.*?\\):"
+if re.search(pat, txt):
+    def repl(m):
+        return m.group(0) + f"""
+    # BEGIN injected patch
+    _forced = os.environ.get('PYQT_FORCE_SIP_VERSION')
+    if _forced:
+        class _F: pass
+        class _V(tuple):
+            def __lt__(self, other): return tuple(self) < tuple(other)
+        parts=[int(p) for p in _forced.split('.')[:3]]
+        while len(parts)<3: parts.append(0)
+        return _V(tuple(parts)), True
+    # END injected patch
+"""
+    new = re.sub(pat, repl, txt, count=1, flags=re.DOTALL)
+    if new != txt:
+        open(path,'w',encoding='utf-8').write(new)
+        print("Patch applied to configure.py")
+PY
+  export PYQT_CONFIG_PATCHED=1
+fi
+```
+
+Then run configure with:
+```bash
+PYQT_FORCE_SIP_VERSION=6.11.1 python configure.py ...
+```
+
+On success, the forced version short-circuits problematic parsing.
+
+### 6.4 Alternate (If Patch Rejected)
+
+- Downgrade to a PyQt5 release whose `configure.py` lacks problematic logic (e.g. earlier 5.15.x) — risk of missing security fixes.
+- Use legacy stack (PyQt5 5.10.1 + sip 4.19.8) — working, but deviates from target and loses modern API compatibility.
+- Build from PyQt5 git + cherry-pick fixed upstream commit (if later commit addresses this) — requires investigation.
+
+### 6.5 Follow-Up After Resume
+
+Once build succeeds with patch:
+1. Capture diff of modified `configure.py`.
+2. Open upstream issue referencing failure scenario (Jetson + sip 6.11.1).
+3. Gate future rebuilds: allow disabling patch via env flag.
 
 ---
 
-## 7. Timeline of Key Events
+## 7. Timeline (Condensed)
 
-| # | Event / Decision | Outcome |
-|---|------------------|---------|
-| 1 | Initial PyQt5 build attempt | Legacy flags; missing compiled modules |
-| 2 | Investigated build failure | Flag `--sip-module` identified as obsolete |
-| 3 | sip 6.12.x regression | Pin established: `<6.12` |
-| 4 | Env corruption (stdlib anomalies) | Abandoned old env |
-| 5 | Created clean `pyqtbuild` env | Fresh baseline |
-| 6 | Installed only `sip` → runtime missing | Recognized packaging split |
-| 7 | Added `PyQt5-sip` | Namespaced `PyQt5.sip` available |
-| 8 | Verified namespaced spec | Build unblocked conceptually |
-| 9 | Drafted script hardening plan | Pending implementation |
-
----
-
-## 8. Issues & Root Causes
-
-| Issue | Root Cause | Resolution Status |
-|-------|------------|------------------|
-| Configure TypeError | sip >=6.12 behavior regression | Pin `<6.12` (Done) |
-| `ModuleNotFoundError: sip` | Runtime moved to `PyQt5.sip` namespace | Updated detection (Planned in script) |
-| Network retry noise | Dead pip extra index (`jetson-ai-lab`) | Removed (Done) |
-| Corrupted stdlib imports | Damaged earlier env | Recreated env (Done) |
-| Obsolete `--sip-module` usage | Legacy instruction mismatch | Remove in patch (Pending) |
-| One-path runtime check | Only tested `sip` top-level | Dual-spec logic needed (Pending) |
+| # | Event | Result |
+|---|-------|--------|
+| 1 | Initial attempt with obsolete flags | Configure failures |
+| 2 | Identified `--sip-module` obsolete | Removed in concept |
+| 3 | sip >=6.12 regression seen | Pin `<6.12` |
+| 4 | Clean environment created | Fresh baseline |
+| 5 | Realized sip packaging split | Added `PyQt5-sip` |
+| 6 | Wrap `sip -V` to normalize | Output stable (6.11.1) |
+| 7 | Configure still crashes | Root cause unresolved |
+| 8 | Patch strategy defined | Not yet applied |
+| 9 | Work paused | Snapshot taken |
 
 ---
 
-## 9. Current State Snapshot
+## 8. Issues Matrix (Updated)
 
-| Aspect                     | State / Value                            |
-|----------------------------|-------------------------------------------|
-| Python env                 | `pyqtbuild` (clean)                      |
-| sip build system (`sipbuild`) | Present                               |
-| Runtime sip                | `PyQt5.sip` extension present            |
-| Top-level `sip` module     | Absent (expected)                        |
-| Script hardening applied   | Not yet                                   |
-| PyQt5 build executed       | Not yet                                   |
-| README updated             | Not yet                                   |
-
----
-
-## 10. Pending Action Items
-
-| Priority | Action | Status | Notes |
-|----------|--------|--------|-------|
-| High | Patch `build_pyqt5_jetson.sh` (pins, detection, exclusions) | Pending | Remove `--sip-module` |
-| High | Execute PyQt5 5.15.10 build | Pending | Capture `build_pyqt5.log` |
-| High | Run negative import validation | Pending | Gate success criteria |
-| Medium | Add README optimization & sip packaging section | Pending | Link to this doc |
-| Medium | Optional `sip` shim creation (legacy code) | Optional | Only if third-party expects `import sip` |
-| Low | Remove dead URLs in other scripts | Pending | e.g. obsolete wheel sources |
-| Low | Add test harness script (`scripts/utils/test_pyqt5_minimal.py`) | Pending | Simple GUI sanity |
-| Low | Record disk & memory metrics | Pending | After first build |
+| Issue | Root Cause | Status | Next Action |
+|-------|------------|--------|------------|
+| `TypeError` in `check_sip` | Version tuple parsing defect | Open | Apply patch Section 6.3 |
+| Missing runtime `sip` | Packaging split | Resolved | None |
+| Obsolete flag usage | Legacy docs | Resolved (concept) | Ensure script updated |
+| Environment corruption | Prior accidental modifications | Resolved | None |
+| Unvalidated exclusions | Build blocked pre-install | Pending | Run post-build script |
+| No manifest generated | Build not complete | Pending | Implement after success |
 
 ---
 
-## 11. Post-Build Validation Script
+## 9. Environment Snapshot
+
+| Aspect | State |
+|--------|-------|
+| Conda env | `pyqtbuild` |
+| Python | 3.10 |
+| sip builder | 6.11.1 |
+| PyQt5-sip runtime | 12.17.0 |
+| PyQt5 build | Not completed |
+| Patch applied? | No (pending) |
+| Logs | Last failed configure run (not archived) |
+
+---
+
+## 10. Pending Work Items (Frozen List)
+
+| Priority | Task | Owner (future) | Notes |
+|----------|------|----------------|-------|
+| High | Implement `configure.py` patch | Resume engineer | Section 6.3 |
+| High | Re-run build & capture `build_pyqt5.log` | Resume engineer | Store under `logs/` (create) |
+| High | Run negative import validation | Resume engineer | Section 11 |
+| Medium | Generate manifest (file list + hashes) | Resume engineer | Scripts addition |
+| Medium | Document metrics (RAM/time) | Resume engineer | Fill Section 21 |
+| Medium | Upstream issue creation | Resume engineer | Include patch diff |
+| Low | Optional legacy `sip` shim | Only if external deps need `import sip` | Avoid by default |
+| Low | README update referencing optimization doc | Docs | Link from project root |
+
+---
+
+## 11. Post-Build Validation Script (Reference)
 
 ```bash
 python - <<'PY'
@@ -161,17 +249,16 @@ disabled = [
     "QtWebSockets","QtPositioning","QtLocation","QtBluetooth","QtNfc",
     "QtSensors","QtSerialPort","QtTest"
 ]
-ok = []
-warn = []
+ok=[]; unexpected=[]
 for m in disabled:
     try:
         __import__("PyQt5."+m)
-        warn.append(m)
+        unexpected.append(m)
     except ImportError:
         ok.append(m)
 print("Excluded OK:", ok)
-if warn:
-    print("WARNING: These modules unexpectedly present:", warn)
+if unexpected:
+    print("UNEXPECTED modules present:", unexpected)
     raise SystemExit(1)
 print("All exclusions enforced.")
 PY
@@ -179,179 +266,139 @@ PY
 
 ---
 
-## 12. Core Commands (Quick Reference)
+## 12. Manifests (Planned Structure)
 
-### **Environment Prep**
-
-```bash
-conda create -n pyqtbuild python=3.10 -y
-conda activate pyqtbuild
-python -m pip install --upgrade pip
-python -m pip install --no-cache-dir "sip>=6.7,<6.12" "PyQt5-sip>=12.11,<13"
-```
-
-### **Verify Runtime Presence**
-
-```bash
-python -c "import importlib.util;print(importlib.util.find_spec('PyQt5.sip'))"
-```
-
-### **Run Build (after script patch)**
-
-```bash
-PYQT_VERSION=5.15.10 ENABLE_MULTIMEDIA=0 MAKE_JOBS=1 SKIP_APT=1 \
-  ./scripts/utils/build_pyqt5_jetson.sh |& tee build_pyqt5.log
-```
-
-### **Optional Shim (only if needed)**
-
+Upon success:
 ```bash
 python - <<'PY'
-import importlib.util, sys, os
-if importlib.util.find_spec('sip') is None and importlib.util.find_spec('PyQt5.sip'):
-    site = [p for p in sys.path if p.endswith('site-packages')][0]
-    shim = os.path.join(site, 'sip.py')
-    if not os.path.exists(shim):
-        with open(shim,'w') as f: f.write('from PyQt5.sip import *  # legacy shim\n')
-        print("Shim created:", shim)
-    else:
-        print("Shim already exists:", shim)
-else:
-    print("Shim not required.")
+import hashlib, os, json, time
+base = next(p for p in __import__('sys').path if p.endswith('site-packages'))
+pyqt = os.path.join(base,'PyQt5')
+entries=[]
+for root,_,files in os.walk(pyqt):
+    for f in files:
+        path=os.path.join(root,f)
+        with open(path,'rb') as fh:
+            h=hashlib.sha256(fh.read()).hexdigest()[:16]
+        entries.append({"rel":os.path.relpath(path, pyqt),"sha256_16":h,"size":os.path.getsize(path)})
+print(json.dumps({"timestamp":time.time(),"count":len(entries),"files":entries},indent=2))
+PY > pyqt5_manifest.json
+```
+Store at `artifacts/pyqt5_manifest.json` for reproducibility.
+
+---
+
+## 13. Risk Snapshot (At Pause)
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|-----------|--------|------------|
+| Upstream changes alter patch point | Low | Medium | Pin PyQt5 sdist hash |
+| Repro patch forgotten on resume | Medium | High | This doc; Section 0 |
+| Hidden dependency missed | Low | Medium | Post-build import audit |
+| OOM on first compile | Medium | Medium | Serial `MAKE_JOBS=1`; swap script |
+
+---
+
+## 14. Parking Lot (Future Enhancements)
+
+- CI container recipe for automated rebuild.
+- Add optional `--list-disabled` CLI to script.
+- Auto-detect presence of large modules and warn if not excluded.
+- Add GPU resource usage sampler during build (profiling).
+- Switch to wheel production stage for distribution (PEP 517).
+
+---
+
+## 15. Minimal Script Requirements (Integrity Checklist)
+
+Ensure `build_pyqt5_jetson.sh` has:
+- Environment pins (`sip>=6.7,<6.12`, `PyQt5-sip>=12.11,<13`).
+- Dual runtime detection (`sip` or `PyQt5.sip`).
+- Removal of obsolete `--sip-module`.
+- Patch injection block (Section 6.3).
+- Module exclusion flags.
+- Negative import validation stage.
+- Optional manifest generation (future).
+- Clear logging prefixes `[INFO]`, `[ERROR]`, `[DEBUG]`.
+
+---
+
+## 16. Upstream Reporting Template (Draft)
+
+When opening an issue upstream:
+
+Title: PyQt5 5.15.10 configure.py check_sip() TypeError with valid sip 6.11.1 on ARM (Jetson)
+
+Body Outline:
+- Environment (Python 3.10, sip 6.11.1, PyQt5-sip 12.17.0).
+- Command line used for `python configure.py`.
+- Exact traceback.
+- Output of `repr(open('configure.py').read()[start:end])` around `check_sip`.
+- Confirmation that `sip -V` returns plain `6.11.1`.
+- Patch diff (forced version guard) as workaround.
+
+---
+
+## 17. Glossary (Abbrev Recap)
+
+| Term | Meaning |
+|------|---------|
+| Negative Import Test | Attempting to import excluded modules expecting failure |
+| Forced SIP Version | Injected override of `check_sip()` logic |
+| Manifest | Hash + size listing of installed PyQt5 files |
+
+---
+
+## 18. Hibernation Integrity Checks (Run Before Leaving — Optional)
+
+```bash
+conda env list | grep pyqtbuild || echo "Env missing!"
+python -c "import sys; print(sys.version)" 2>/dev/null
+python - <<'PY'
+import importlib.util as u
+print("sipbuild:", u.find_spec("sipbuild") is not None)
+print("PyQt5.sip:", u.find_spec("PyQt5.sip") is not None)
+print("sip (legacy):", u.find_spec("sip") is not None)
 PY
 ```
 
 ---
 
-## 13. Script Hardening Checklist
+## 19. Known Good Legacy Fallback
 
-- [ ] Version pins: `sip>=6.7,<6.12`, `PyQt5-sip>=12.11,<13`
-- [ ] Sanitize pip indices (no dead extras)
-- [ ] Always use `python -m pip`
-- [ ] Export `PYTHONNOUSERSITE=1`
-- [ ] Remove legacy `--sip-module`
-- [ ] Dual runtime detection (`sip` OR `PyQt5.sip`)
-- [ ] Pre-flight abort if builder/runtime missing
-- [ ] Temp build dir + trap cleanup
-- [ ] Explicit configure args echo
-- [ ] `MAKE_JOBS` default 1
-- [ ] Negative import tests post-install
-- [ ] Optional shim (only if demanded)
-- [ ] Structured exit codes
+A working (but older) path exists: `scripts/utils/build_pyqt5_ARM64_jetson_conda.sh` builds PyQt5 5.10.1 with sip 4.19.8. Use only if modern path blocks critical progress; lacks newer API compatibility.
 
 ---
 
-## 14. Risks & Mitigations
+## 20. Resume Checklist (Tick When Returning)
 
-| Risk | Impact | Likelihood | Mitigation |
-|------|--------|------------|------------|
-| New sip regression | Build failure | Medium | Maintain pin; retest periodically |
-| Missing Qt dev headers | Configure abort | Low | Ensure `qtbase5-dev` via APT step |
-| OOM during compile | Build abort, wasted time | Medium | Large swap + serial make first |
-| Packaging layout change (`PyQt5.sip`) | Detection break | Low | Generic spec-finder logic |
-| Local path shadowing `sip` | False negatives | Low | Pre-flight path scan |
-| Silent partial install | Runtime mismatch | Low | Post-build verification block |
-
----
-
-## 15. Changelog (Internal)
-
-| Date Tag | Change |
-|----------|--------|
-| Early | Initial attempt (legacy flags) |
-| +1 | Defined exclusion list |
-| +2 | Found sip >=6.12 regression, pinned |
-| +3 | Rebuilt clean env |
-| +4 | Understood packaging split |
-| +5 | Namespaced runtime verified |
-| Pending | Apply hardened script & build |
+- [ ] Env `pyqtbuild` present (or recreated).
+- [ ] sip + PyQt5-sip versions confirm within pins.
+- [ ] PyQt5 5.15.10 sdist downloaded (verify hash optionally).
+- [ ] Patch inserted (log line: "Patch applied to configure.py").
+- [ ] Build succeeds (no `TypeError`).
+- [ ] Validation script passes (all excluded modules absent).
+- [ ] Manifest generated & stored.
+- [ ] Section 21 completed.
 
 ---
 
-## 16. Disabled Modules Rationale
-
-- **WebEngine***: Chromium embedding; biggest weight; high RAM/runtime overhead.
-- **Positioning/Location/Sensors/Bluetooth/NFC**: Not needed for standard control UI.
-- **SerialPort**: Optional; include only for hardware integration projects.
-- **Test**: Unit-test binding layer unnecessary in deployed runtime.
-
----
-
-## 17. Identifying sip Components
-
-```bash
-python - <<'PY'
-import importlib.util
-for name in ['sipbuild','sip','PyQt5.sip']:
-    print(name, '->', importlib.util.find_spec(name))
-PY
-```
-
-Interpretation:
-
-- `sipbuild`: must exist.
-- `PyQt5.sip`: expected runtime extension.
-- `sip`: may be None (normal).
-
----
-
-## 18. SIP Version Notes
-
-Builder sip version (e.g. 6.11.1) may differ from embedded runtime API version (e.g. 6.10.0) compiled into `PyQt5.sip`. Acceptable if within compatibility window enforced by pins.
-
----
-
-## 19. Glossary
-
-| Term | Definition |
-|------|------------|
-| sip | Historic runtime module (now usually absent) |
-| sipbuild | Build system Python package from `sip` distribution |
-| PyQt5-sip | Distribution providing runtime `PyQt5.sip` extension |
-| Namespaced sip | Import path: `from PyQt5 import sip` |
-| MAKE_JOBS | Parallel build threads setting |
-| Negative import test | Confirm exclusion by expecting ImportError |
-
----
-
-## 20. Next Milestone
-
-Apply hardened script → Run build → Capture `build_pyqt5.log` → Execute validation script → Record results in Section 21.
-
----
-
-## 21. Build Validation (Template – Fill After First Success)
+## 21. Build Validation (To Be Filled Post-Success)
 
 ```text
-Build Date: YYYY-MM-DD
+Build Date: (pending)
 PyQt5 Version: (expect 5.15.10)
-Qt Version: (expect 5.15.3 or system equivalent)
-Excluded Modules Confirmed: [...list...]
-Wheel / Install Path: ...
+Qt Version: (expect 5.15.3)
+Excluded Modules Confirmed: [...]
 Build Duration: ...
-Peak Memory (optional): ...
+Peak Memory (approx): ...
+Manifest File: artifacts/pyqt5_manifest.json
+Patch Applied: yes/no
 Notes: ...
 ```
 
 ---
 
-## 22. Contribution Workflow
+## 22. Exit Note
 
-1. Open Issue describing desired module changes / additional exclusions.
-2. Provide build log + validation script output.
-3. Submit PR with diff (script + doc) and rationale.
-4. Reviewer confirms reproducibility on clean Jetson.
-
----
-
-## 23. Future Enhancements (Backlog)
-
-- Generate a minimal wheel artifact.
-- Add CI container recipe for deterministic rebuild.
-- Add hash manifest of installed PyQt5 files.
-- Optional QtMultimedia toggle auto-detection.
-- Metrics collection script for footprint delta vs stock PyQt5.
-
----
-
-_This document will evolve as the build script lands and validation data is gathered._
+Work intentionally paused prior to first successful 5.15.10 build due to unresolved `configure.py` version parsing issue. The next critical action is implementing the forced SIP version patch; all downstream steps depend on that unblock.
